@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MusicXML 4.0 Partwise 示例
+  包含：小提琴与人声，4/4拍，C大调，速度♩=72，力度f，
+  三连音（八分音符3:2），延音线（D5跨小节），普通四分休止，
+  全小节休止，不依附音符的p力度，渐强（crescendo wedge），
+  渐慢（Ritardando），回原速（A tempo），变音（F#）。
+-->
+<!DOCTYPE score-partwise PUBLIC
+  "-//Recordare//DTD MusicXML 4.0 Partwise//EN"
+  "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="4.0">
+
+  <!-- ========== part-list：声部列表 ========== -->
+  <part-list>
+    <!-- score-part 定义声部，id 用于后续 part 引用 -->
+    <score-part id="Vln">
+      <part-name>Violin</part-name>
+      <!-- score-instrument：乐器定义，id 在本声部内唯一 -->
+      <score-instrument id="Vln-I1">
+        <instrument-name>Violin</instrument-name>
+      </score-instrument>
+      <!-- midi-instrument：MIDI 播放参数，id 指向 score-instrument -->
+      <midi-instrument id="Vln-I1">
+        <midi-channel>1</midi-channel>
+        <midi-program>40</midi-program> <!-- 小提琴 GM 音色号 -->
+      </midi-instrument>
+    </score-part>
+    <score-part id="Vocal">
+      <part-name>Voice</part-name>
+      <score-instrument id="Vocal-I1">
+        <instrument-name>Voice</instrument-name>
+      </score-instrument>
+      <midi-instrument id="Vocal-I1">
+        <midi-channel>2</midi-channel>
+        <midi-program>53</midi-program> <!-- 人声 GM 音色号 -->
+      </midi-instrument>
+    </score-part>
+  </part-list>
+
+  <!-- ========== 小提琴声部 ========== -->
+  <part id="Vln">
+
+    <!-- ===== 第1小节 ===== -->
+    <measure number="1">
+      <!-- attributes：初始属性，divisions 表示四分音符的 ticks 数 -->
+      <attributes>
+        <divisions>24</divisions>
+        <key><fifths>0</fifths><mode>major</mode></key> <!-- C 大调 -->
+        <time><beats>4</beats><beat-type>4</beat-type></time> <!-- 4/4拍 -->
+        <clef><sign>G</sign><line>2</line></clef> <!-- 高音谱号 -->
+      </attributes>
+
+      <!-- direction：速度标记 ♩=72 -->
+      <direction>
+        <direction-type>
+          <metronome><beat-unit>quarter</beat-unit><per-minute>72</per-minute></metronome>
+        </direction-type>
+        <sound tempo="72"/> <!-- 播放速度 -->
+      </direction>
+      <!-- direction：力度 f -->
+      <direction>
+        <direction-type><dynamics><f/></dynamics></direction-type>
+      </direction>
+
+      <!-- 三连音：三个八分音符，duration=8（因为 divisions=24，正常八分=12，三连音3:2，所以每个=8） -->
+      <!-- 第一个三连音音 -->
+      <note>
+        <pitch><step>A</step><octave>4</octave></pitch>
+        <duration>8</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+        <beam number="1">begin</beam>
+        <notations><tuplet type="start" number="1" bracket="no" show-number="actual" placement="above"/></notations>
+      </note>
+      <!-- 第二个三连音音 -->
+      <note>
+        <pitch><step>B</step><octave>4</octave></pitch>
+        <duration>8</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+        <beam number="1">continue</beam>
+      </note>
+      <!-- 第三个三连音音 -->
+      <note>
+        <pitch><step>C</step><octave>5</octave></pitch>
+        <duration>8</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+        <beam number="1">end</beam>
+        <notations><tuplet type="stop" number="1"/></notations>
+      </note>
+
+      <!-- 延音线开始：D5，四分音符，tie 负责声音延续，tied 负责显示连线 -->
+      <note>
+        <pitch><step>D</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <tie type="start"/>
+        <voice>1</voice>
+        <type>quarter</type>
+        <notations><tied type="start"/></notations>
+      </note>
+
+      <!-- E5 四分音符 -->
+      <note>
+        <pitch><step>E</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+
+      <!-- 普通四分休止符 -->
+      <note>
+        <rest/>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+    </measure>
+
+    <!-- ===== 第2小节 ===== -->
+    <measure number="2">
+      <!-- direction：不依附音符的 p，放置在下侧 -->
+      <direction placement="below">
+        <direction-type><dynamics><p/></dynamics></direction-type>
+      </direction>
+      <!-- direction：渐强开始（wedge type=crescendo） -->
+      <direction>
+        <direction-type><wedge type="crescendo"/></direction-type>
+      </direction>
+
+      <!-- 延音线结束：D5 -->
+      <note>
+        <pitch><step>D</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <tie type="stop"/>
+        <voice>1</voice>
+        <type>quarter</type>
+        <notations><tied type="stop"/></notations>
+      </note>
+
+      <!-- F5 四分音符 -->
+      <note>
+        <pitch><step>F</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <!-- G5 四分音符 -->
+      <note>
+        <pitch><step>G</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <!-- A5 四分音符 -->
+      <note>
+        <pitch><step>A</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+
+      <!-- direction：渐强结束 -->
+      <direction>
+        <direction-type><wedge type="stop"/></direction-type>
+      </direction>
+    </measure>
+
+    <!-- ===== 第3小节 ===== -->
+    <measure number="3">
+      <!-- direction：渐慢标记，文字 + 播放速度 60 -->
+      <direction>
+        <direction-type><words>Ritardando</words></direction-type>
+        <sound tempo="60"/>
+      </direction>
+
+      <!-- 四个四分音符 B5, A5, G5, F5 -->
+      <note>
+        <pitch><step>B</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <note>
+        <pitch><step>A</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <note>
+        <pitch><step>G</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <note>
+        <pitch><step>F</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+    </measure>
+
+    <!-- ===== 第4小节 ===== -->
+    <measure number="4">
+      <!-- direction：回原速标记 -->
+      <direction>
+        <direction-type><words>A tempo</words></direction-type>
+        <sound tempo="72"/>
+      </direction>
+
+      <!-- 全音符 C5 -->
+      <note>
+        <pitch><step>C</step><octave>5</octave></pitch>
+        <duration>96</duration>
+        <voice>1</voice>
+        <type>whole</type>
+      </note>
+    </measure>
+  </part>
+
+  <!-- ========== 人声声部 ========== -->
+  <part id="Vocal">
+
+    <!-- ===== 第1小节 ===== -->
+    <measure number="1">
+      <!-- attributes：与小提琴相同，保证拍号调号一致 -->
+      <attributes>
+        <divisions>24</divisions>
+        <key><fifths>0</fifths><mode>major</mode></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+
+      <!-- 四个四分音符：C5, D5, E5, G5 -->
+      <note>
+        <pitch><step>C</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <note>
+        <pitch><step>D</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <note>
+        <pitch><step>E</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <note>
+        <pitch><step>G</step><octave>5</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+    </measure>
+
+    <!-- ===== 第2小节 ===== -->
+    <measure number="2">
+      <!-- 全小节休止：rest measure="yes" 表示自动撑满整小节 -->
+      <note>
+        <rest measure="yes"/>
+        <duration>96</duration>
+        <voice>1</voice>
+        <type>whole</type>
+      </note>
+    </measure>
+
+    <!-- ===== 第3小节 ===== -->
+    <measure number="3">
+      <!-- 四个四分音符：A4, F#4, G4, A4 -->
+      <note>
+        <pitch><step>A</step><octave>4</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <!-- F#4：alter=1 表示升半音，accidental=sharp 控制显示 -->
+      <note>
+        <pitch><step>F</step><alter>1</alter><octave>4</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+        <accidental>sharp</accidental>
+      </note>
+      <note>
+        <pitch><step>G</step><octave>4</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <note>
+        <pitch><step>A</step><octave>4</octave></pitch>
+        <duration>24</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+    </measure>
+
+    <!-- ===== 第4小节 ===== -->
+    <measure number="4">
+      <!-- 全音符 C5 -->
+      <note>
+        <pitch><step>C</step><octave>5</octave></pitch>
+        <duration>96</duration>
+        <voice>1</voice>
+        <type>whole</type>
+      </note>
+    </measure>
+  </part>
+
+</score-partwise>
