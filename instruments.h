@@ -36,7 +36,7 @@ typedef struct InstrumentGroup{
 
 /* 乐器组分组索引表 */
 
-const int NUM_OF_INSTRUMENT_GROUPS = 13;
+static const int NUM_OF_INSTRUMENT_GROUPS = 13;
 static const InstrumentGroup InstrumentGroupList[] = {
     {"Woodwinds",            "木管",       0,  12},
     {"Brass",                "铜管",       13, 18},
@@ -54,7 +54,7 @@ static const InstrumentGroup InstrumentGroupList[] = {
     {NULL, NULL, -1, -1}
 };
 
-const int NUM_OF_INSTRUMENT_PROTS = 87;
+static const int NUM_OF_INSTRUMENT_PROTS = 87;
 
 
 static const InstrumentPrototype InstrumentPrototypeList[] = {

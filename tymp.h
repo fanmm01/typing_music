@@ -5,8 +5,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <wchar.h>
-#include <locale.h>
 
 #include "instruments.h"
 
@@ -17,57 +15,67 @@
 #define MOD_M(A,B) ((A%B)?(A%B):B)
 
 
-bool is_all_chinese(const char *str) {
-    if (!str || *str == '\0') return false;   // 空串不算中文
-    setlocale(LC_ALL, "en_US.UTF-8");         // 设置 UTF-8 locale（也可用 "" 取系统默认）
-    mbstate_t state;
-    memset(&state, 0, sizeof(state));
-    size_t len = strlen(str);
-    const char *p = str;
-    wchar_t wc;
-    int ret;
-    while ((ret = mbrtowc(&wc, p, len - (p - str), &state)) > 0) {
-        // 判断 Unicode 码点是否在 CJK 基本区 (U+4E00 ~ U+9FFF)
-        // 可根据需要添加扩展区：U+3400~U+4DBF, U+20000~U+2A6DF 等
-        if (!((wc >= 0x4E00 && wc <= 0x9FFF) ||
-              (wc >= 0x3400 && wc <= 0x4DBF) ||
-              (wc >= 0x20000 && wc <= 0x2A6DF))) {
-            return false;
-        }
-        p += ret;
-    }
-    return (ret == 0);   // ret==0 表示正常结束（遇到空字符）
+/* UTF-8 序列长度；非法首字节返回 0 */
+static inline int utf8_seq_len(const unsigned char c) {
+    if (c < 0x80) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 0;
 }
 
-bool contains_chinese(const char *str) {
-    if (!str || *str == '\0') return false;   // 空串肯定不含中文
-    setlocale(LC_ALL, "en_US.UTF-8");         // 确保 UTF-8 locale
-    mbstate_t state;
-    memset(&state, 0, sizeof(state));
-    size_t len = strlen(str);
-    const char *p = str;
-    wchar_t wc;
-    int ret;
-    while ((ret = mbrtowc(&wc, p, len - (p - str), &state)) > 0) {
-        // 判断是否属于中文 Unicode 范围（可根据需要扩展）
-        if ((wc >= 0x4E00 && wc <= 0x9FFF) ||          // CJK 基本区
-            (wc >= 0x3400 && wc <= 0x4DBF) ||          // CJK 扩展 A
-            (wc >= 0x20000 && wc <= 0x2A6DF) ||        // CJK 扩展 B
-            (wc >= 0x2A700 && wc <= 0x2B73F) ||        // CJK 扩展 C
-            (wc >= 0x2B740 && wc <= 0x2B81F) ||        // CJK 扩展 D
-            (wc >= 0x2B820 && wc <= 0x2CEAF) ||        // CJK 扩展 E
-            (wc >= 0xF900 && wc <= 0xFAFF) ||          // CJK 兼容汉字
-            (wc >= 0xFE30 && wc <= 0xFE4F)) {          // CJK 兼容形式（部分标点）
-            return true;                               // 发现中文，立即返回
-        }
-        p += ret;
+/* 解码一个 UTF-8 码点；len 来自 utf8_seq_len */
+static inline unsigned decode_utf8(const unsigned char *p, int len) {
+    switch (len) {
+        case 1: return p[0];
+        case 2: return ((unsigned)(p[0] & 0x1F) << 6) | (p[1] & 0x3F);
+        case 3: return ((unsigned)(p[0] & 0x0F) << 12) | ((unsigned)(p[1] & 0x3F) << 6)
+                     | (p[2] & 0x3F);
+        case 4: return ((unsigned)(p[0] & 0x07) << 18) | ((unsigned)(p[1] & 0x3F) << 12)
+                     | ((unsigned)(p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+        default: return 0xFFFFFFFFu;   /* 非法 */
     }
-    // 如果循环正常结束（遇到空字符或到达末尾），说明没有中文
+}
+
+/* 码点是否属于 CJK 汉字范围 */
+static inline bool cp_is_cjk(unsigned cp) {
+    return (cp >= 0x4E00 && cp <= 0x9FFF)      /* CJK 基本区 */
+        || (cp >= 0x3400 && cp <= 0x4DBF)      /* CJK 扩展 A */
+        || (cp >= 0x20000 && cp <= 0x2A6DF)    /* CJK 扩展 B */
+        || (cp >= 0x2A700 && cp <= 0x2B73F)    /* CJK 扩展 C */
+        || (cp >= 0x2B740 && cp <= 0x2B81F)    /* CJK 扩展 D */
+        || (cp >= 0x2B820 && cp <= 0x2CEAF)    /* CJK 扩展 E */
+        || (cp >= 0xF900 && cp <= 0xFAFF)      /* CJK 兼容汉字 */
+        || (cp >= 0xFE30 && cp <= 0xFE4F);     /* CJK 兼容形式 */
+}
+
+static inline bool is_all_chinese(const char *str) {
+    if (!str || *str == '\0') return false;   // 空串不算中文
+    const unsigned char *p = (const unsigned char *)str;
+    while (*p) {
+        int len = utf8_seq_len(*p);
+        if (len == 0) return false;           // 非法字节序列
+        if (!cp_is_cjk(decode_utf8(p, len))) return false;
+        p += len;
+    }
+    return true;
+}
+
+static inline bool contains_chinese(const char *str) {
+    if (!str || *str == '\0') return false;   // 空串肯定不含中文
+    const unsigned char *p = (const unsigned char *)str;
+    while (*p) {
+        int len = utf8_seq_len(*p);
+        if (len == 0) return false;
+        if (cp_is_cjk(decode_utf8(p, len))) return true;
+        p += len;
+    }
     return false;
 }
 
 
-int ifStrEndwith(char* str,char* tok){
+static inline int ifStrEndwith(char* str,char* tok){
+    if(!str||!tok) return 0;
     int len = strlen(str);
     int len_tok = strlen(tok);
     if(len==0) return 0;
@@ -79,7 +87,8 @@ int ifStrEndwith(char* str,char* tok){
     return 1;
 }
 
-int ifStrStartwith(char* str,char* tok){
+static inline int ifStrStartwith(char* str,char* tok){
+    if(!str||!tok) return 0;
     int len = strlen(str);
     int len_tok = strlen(tok);
     if(len==0) return 0;
@@ -107,15 +116,15 @@ typedef enum notetype{
 } notetype;
 
 typedef enum tie{
-    start=1,
-    end=2,
+    TIE_START=1,
+    TIE_END=2,
 } tie;
 
 typedef enum syllabic{
-    single=0,
-    start=1,
-    end=2,
-    middle=2,
+    SYL_SINGLE=0,
+    SYL_BEGIN=1,
+    SYL_END=2,
+    SYL_MIDDLE=3,
 } syllabic;
 
 typedef struct time_modification{
@@ -181,6 +190,9 @@ typedef struct note_tymp{
 
 
 
+/* 由 tymp2musicXML.c 实现：新建 .musicxml 文件并写入 xmlHead，失败返回 NULL */
+FILE * initNewMusicXML(char *filename);
+
 /*
 <!--==musicxml head==-->
 <?xml version="1.0" encoding="UTF-8"?>
@@ -189,7 +201,7 @@ typedef struct note_tymp{
   "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="4.0">
 */
-const char xmlHead[210] = 
+static const char xmlHead[210] =
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
 "<!DOCTYPE score-partwise PUBLIC\n"
 "  \"-//Recordare//DTD MusicXML 4.0 Partwise//EN\"\n"
