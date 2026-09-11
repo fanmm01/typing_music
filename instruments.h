@@ -1,16 +1,16 @@
-#ifndef INSTRUMENTS_H
-#define INSTRUMENTS_H
+#ifndef _INSTRUMENTS_H
+#define _INSTRUMENTS_H
 
 #include <stdio.h>
 
 /* 乐器类别：决定如何生成 MusicXML 的 midi-instrument */
-typedef enum {
+typedef enum InsKind{
     INS_PITCHED   = 0,   /* 有音高：写 midi-program */
     INS_UNPITCHED = 1,   /* 无音高打击单件：写 midi-channel + midi-unpitched，不写 midi-program */
     INS_DRUMKIT   = 2    /* 架子鼓整组：走打击通道，可写 program=1 标准鼓包或不写 */
 } InsKind;
 
-typedef struct {
+typedef struct InstrumentPrototype{
     const char *base_id;     /* 基础id前缀，生成 Vln1/Vln2 用 */
     const char *base_name;   /* 英文基础名，生成 part-name/instrument-name */
     const char *chinese;     /* 中文基础名 */
@@ -19,7 +19,45 @@ typedef struct {
     int         unpitched;   /* 若为单件无音高，填GM鼓键位如军鼓38；否则0 */
 } InstrumentPrototype;
 
-static const InstrumentPrototype g_proto[] = {
+typedef struct Instrument{
+    char *score_part_id;//不可重复的。
+    char *instrument_id;//不可重复的。
+    char *part_name_En;//可以重复的，但在此不会如此设置。将会在导出的时候设置语言，故需要给出两个。
+    char *part_name_Zh;
+    InstrumentPrototype prototype;
+} Instrument;
+
+typedef struct InstrumentGroup{
+    char *group_name;
+    char *chinese;
+    int start_index;
+    int end_index;
+} InstrumentGroup;
+
+/* 乐器组分组索引表 */
+
+const int NUM_OF_INSTRUMENT_GROUPS = 13;
+static const InstrumentGroup InstrumentGroupList[] = {
+    {"Woodwinds",            "木管",       0,  12},
+    {"Brass",                "铜管",       13, 18},
+    {"Pitched Percussion",   "有音高打击", 19, 26},
+    {"Unpitched Percussion", "无音高打击", 27, 40},
+    {"Drum Kit",             "架子鼓",     41, 41},
+    {"Percussion",           "打击乐",     19, 41},
+    {"Strings",              "弦乐",       42, 47},
+    {"Keyboards & Plucked",  "键盘/拨弦",  48, 57},
+    {"Voices",               "人声",       58, 63},
+    {"Guitars",              "吉他",       64, 71},
+    {"Basses",               "贝斯",       72, 77},
+    {"Other Synths & Misc",  "其他合成器", 78, 85},
+    {"General",              "通用",       86, 86},
+    {NULL, NULL, -1, -1}
+};
+
+const int NUM_OF_INSTRUMENT_PROTS = 87;
+
+
+static const InstrumentPrototype InstrumentPrototypeList[] = {
     /* ---------- 木管 ---------- */
     {"Picc",  "Piccolo",           "短笛",      73, INS_PITCHED, 0},
     {"FL",    "Flute",             "长笛",      74, INS_PITCHED, 0},
@@ -127,6 +165,9 @@ static const InstrumentPrototype g_proto[] = {
     {"BRASS", "Brass Section",      "铜管合奏",  62, INS_PITCHED, 0},
     {"SBR1",  "Synth Brass 1",      "合成铜管1", 63, INS_PITCHED, 0},
 
+
+    /*通用/自定义乐器*/
+    {"INST","Instrument","乐器",1,INS_PITCHED, 0},
     /* 终止 */
     {NULL, NULL, NULL, 0, INS_PITCHED, 0}
 };

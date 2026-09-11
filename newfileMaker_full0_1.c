@@ -8,6 +8,12 @@ typedef struct timesign {
     int den;  // 分母
 } timesign;
 
+typedef struct AppearTime{
+    char* name;
+    int time;
+    InstrumentPrototype prototype;
+} AppearTime;
+
 const char gt[6][3] = {"E2", "A2", "D3", "G3", "B3", "E3"};
 
 /*仅供测试用：跨平台获取源文件目录*/
@@ -78,6 +84,7 @@ int get_related_accurcy(timesign time, int Accuracy) {
 int write_timestp(FILE *fp, timesign time, int chaBef, int Accuracy) {
     write_linehead(fp, "#timestamp:", chaBef);
     int accu = get_related_accurcy(time, Accuracy);
+    if (time.num * accu == 0) return;
     // 每小节：num 拍，每拍 accu 个分格 → 一小节共 num*accu 个标记
     for (int i = 0; (i * time.num * accu) < MAX_NUM; i++) {
         for (int j = 0; j < time.num; j++) {
@@ -169,6 +176,142 @@ int new_firstLine(FILE *fp, char *keyroot,
     free(firstline_tok);
     free(gttok);  // 释放 getGT 分配的内存
     return 0;
+}
+
+
+int findInstruments(InstrumentPrototype* insts,char* inputInst){
+    int j = 0;
+    int FOUND = 0;
+    for (int i = 0;i < NUM_OF_INSTRUMENT_GROUPS;i++){
+         if (!strcmp(inputInst, InstrumentGroupList[i].chinese) ||
+            !strcmp(inputInst, InstrumentGroupList[i].group_name)) {
+            for (int k = InstrumentGroupList[i].start_index;k <= InstrumentGroupList[i].end_index;k++){
+                insts[j++] = InstrumentPrototypeList[k];
+                FOUND = 1;
+                break;
+            }    
+        }
+    }
+    if (!FOUND)for (int i = 0;i < NUM_OF_INSTRUMENT_PROTS - 1&& j < 15;i++){
+        if (!strcmp(inputInst, InstrumentPrototypeList[i].base_id) ||
+                !strcmp(inputInst, InstrumentPrototypeList[i].base_name) ||
+                !strcmp(inputInst, InstrumentPrototypeList[i].chinese)) {
+            for (int i = 0;i < 16;i++) insts[i] = InstrumentPrototypeList[NUM_OF_INSTRUMENT_PROTS];
+            insts[0] = InstrumentPrototypeList[i];
+            j = 1;
+            break;
+        } else
+        if (strstr(inputInst,InstrumentPrototypeList[i].base_id)
+                || strstr(inputInst,InstrumentPrototypeList[i].base_name)
+                ||strstr(inputInst,InstrumentPrototypeList[i].chinese) ||
+                strstr(InstrumentPrototypeList[i].base_id, inputInst)
+                || strstr(InstrumentPrototypeList[i].base_name, inputInst)
+                || strstr(InstrumentPrototypeList[i].chinese, inputInst))
+            insts[j++] = InstrumentPrototypeList[i];
+    }
+    insts[j] = InstrumentPrototypeList[NUM_OF_INSTRUMENT_PROTS];
+
+    if (j != 0) return j;
+    else{
+        for (int i = 0;i < 16;i++) insts[i] = InstrumentPrototypeList[NUM_OF_INSTRUMENT_PROTS];
+        insts[0] = InstrumentPrototypeList[NUM_OF_INSTRUMENT_PROTS-1];
+        return 0;
+    }
+}
+
+InstrumentPrototype searchAndSetInstrument(int index,char* instrumentname){
+    char *instrument = (char *)malloc(50);
+    char inputInstrument[50]; 
+    printf("Instrument #%d name: ",index);
+    scanf("%49s", inputInstrument);
+    InstrumentPrototype options[16];
+    int n = findInstruments(options,inputInstrument);
+    if (n > 1){
+        printf("Insert number to choose(-1 to self-define)\n");
+        int j = 0;
+        for (int i = 0;i < n;i++){
+            if (options[i].base_id != NULL)
+                printf("%d,%s %s %s %s\n",
+                    i,
+                    options[i].base_id,
+                    options[i].base_name,
+                    options[i].chinese,
+                    options[i].gm_program);
+            else break;
+        }
+        scanf("%d",&j);
+        if (j >= 0 && j < n){
+            instrumentname = strdup(options[j].chinese);
+            return options[j];
+        }
+        else if (j == -1){
+            printf("input the name or 'I' for depending on system:");
+            char buf[50];
+            scanf("%s",buf);
+            instrumentname = strdup(buf);
+            return InstrumentPrototypeList[NUM_OF_INSTRUMENT_PROTS-1];
+        }
+    } else if (n == 1 && (strcmp((options[0].base_id),"INST"))) 
+        return options[0];
+    else {
+        printf("Input the name or 'I' for depending on system:");
+        char buf[50];
+        scanf("%s",buf);
+        instrumentname = strdup(buf);
+        return InstrumentPrototypeList[NUM_OF_INSTRUMENT_PROTS-1];
+    };
+}
+
+Instrument GetInstrumentFromPrototypeAndIndex(InstrumentPrototype prototype,int index, char* name){
+    Instrument instrument;
+    bool isChineseName = contains_chinese(name); 
+    if (prototype.base_id == NULL) return (Instrument){0};
+    else {
+        sprintf(instrument.score_part_id,"%s%d",prototype.base_id,index);
+        sprintf(instrument.instrument_id,"%s%d-I1",prototype.base_id,index);
+        if (strcmp(prototype.base_id, "INST") == 0){
+            if (isChineseName){
+                sprintf(instrument.part_name_En,"%s#%d",prototype.base_name,index);
+                sprintf(instrument.part_name_Zh,"%s",name);
+            } else{
+                sprintf(instrument.part_name_En,"%s",name);
+                sprintf(instrument.part_name_Zh,"%s#%d",prototype.chinese,index);
+            } 
+        }
+        else {
+            strcpy(instrument.part_name_En,prototype.base_name);
+            strcpy(instrument.part_name_Zh,prototype.chinese);
+        }
+        instrument.prototype = prototype;  
+    }
+}
+
+
+int findIfContextInAppeartimeList(char *context, AppearTime *Appts){
+    int n = 0;
+    for (int i = 0;;i++){
+        if (!strcmp(context,Appts[i].name)) return i;
+        if (!(Appts[i].name)) return i;
+    }
+}
+
+int GetInstrumentsFromPrototypes(Instrument *instrumentlist, InstrumentPrototype *proptypeList,int NumOfProplist, char** names){
+    AppearTime *apprTimeList = calloc(NumOfProplist, sizeof(AppearTime));
+    int n = 0;
+    for (int i = 0;i < NumOfProplist;i++){
+        int dex = findContextInAppeartimeList(proptypeList[i].base_name,apprTimeList);
+        apprTimeList[dex].name = names[i];
+        apprTimeList[dex].time++;
+        apprTimeList[dex].prototype = proptypeList[i];
+        if (dex==n) n++;
+    }
+    for (int k = 0;k < n;k++){
+        for (int j = 0;j < apprTimeList[k].time;j++){
+           instrumentlist[k] = GetInstrumentFromPrototypeAndIndex(apprTimeList[k].prototype,j,apprTimeList[k].name);
+        }
+    }
+    free (apprTimeList);
+    return n;
 }
 
 /*
@@ -319,18 +462,20 @@ int main() {
             scanf("%d", &numofAcco);
             printf("Number of Lines: ");
             scanf("%d", &numofLines);
-            printf("Accuracy: ");
+            printf("Accuracy: ");;
             scanf("%d", &Accuracy);
-
-            instruments = (char **)malloc((numofAcco + 1) * sizeof(char *));
-            for (int i = 0; i < numofAcco; i++) {
-                instruments[i] = (char *)malloc(50);
-                printf("Instrument #%d name: ", i);
-                scanf("%49s", instruments[i]);
+            Instrument instrumentslist[numofAcco+1];
+                char** instrumentNames = (char**)malloc(50*30*sizeof(char*));
+                InstrumentPrototype prototypes[numofAcco+1];
+            for(int i = 0;i < numofAcco;i++){
+                instrumentNames[i] = (char*)malloc(50*sizeof(char));
+                prototypes[i] = searchAndSetInstrument(i,instrumentNames[i]);
             }
+            GetInstrumentsFromPrototypes(instrumentslist,prototypes,numofAcco,instrumentNames);
             instruments[numofAcco] = NULL;
             break;
         }
+        
 
         default:
             printf("Invalid mode.\n");
