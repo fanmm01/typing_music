@@ -1,7 +1,7 @@
 #include "tymp.h"
 
 
-/*get a new xml file*/
+/*get a new xml file and write the head*/
 FILE * initNewMusicXML(char *filename){
     if (!filename) return NULL;
     size_t len = strlen(filename);
@@ -17,4 +17,20 @@ FILE * initNewMusicXML(char *filename){
     fputs(xmlHead,fp);
     return fp;
 }
+
+/*write part-list from instrument list*/
+int makeInstrumentPart();
+
+/*get instrument list according to the file stream*/
+int getInstrumentList();
+
+
+/*get speed。*/
+
+/*to write a note.*/
+
+/*get one of a measure's one part.*/
+
+
+
 

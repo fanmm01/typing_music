@@ -42,7 +42,7 @@ void get_source_dir(char *dir_buf, size_t buf_size) {
 
 /* 初始化一个 line 的行首。 */
 int write_linehead(FILE *fp, char *tok, int chsBef) {
-    fprintf(fp, "%-*.*s", chsBef, chsBef, tok);
+    fprintf(fp, "%*.*s", chsBef, chsBef, tok);
     fprintf(fp, "||");
     return 0;
 }
@@ -183,7 +183,8 @@ int new_firstLine(FILE *fp, char *keyroot,
                 j, inst->score_part_id, inst->part_name_En);
         write_blankline(fp, 1, "", RealChaBef);  /* 伴奏声部前的空行 */
         write_blankline(fp, 1, headtok, RealChaBef);
-        write_blankline(fp, 1, inst->part_name_Zh ? inst->part_name_Zh : "", RealChaBef);
+        // write_blankline(fp, 1, inst->part_name_Zh ? inst->part_name_Zh : "", RealChaBef);
+        write_blankline(fp,1,"",RealChaBef);
         if ((j != 0) && (j % 5 == 0)) write_timestp(fp, time, RealChaBef, Accuracy);
     }
     write_blankline(fp, 1, "}", RealChaBef);
@@ -552,10 +553,9 @@ int main() {
             ask_int("Denominator of timesign: ", &timesign.den);
             ask_int("Number of Harmonies: ", &numofHarm);
             ask_int("Number of Accompaniment: ", &numofAcco);
-
+            ask_int("Accuracy: ",&Accuracy);
+            ask_int("Number of lines: ",&numofLines);
             speed = 120.0;
-            numofLines = 10;
-            Accuracy = 4;
 
             if (!validate_counts(timesign, speed, numofHarm, numofAcco,
                     numofLines, Accuracy)) {
