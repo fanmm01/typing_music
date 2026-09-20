@@ -529,9 +529,9 @@ int main() {
             strcpy(keyroot, "C");
             ask_int("Numerator of timesign: ", &timesign.num);
             ask_int("Denominator: ", &timesign.den);
+            ask_int("Number of Accompaniment: ", &numofAcco);
             speed = 120.0;
-            numofHarm = 2;
-            numofAcco = 5;
+            numofHarm = 3;
             numofLines = 10;
             Accuracy = 4;
 
