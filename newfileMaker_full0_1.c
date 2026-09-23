@@ -126,10 +126,11 @@ int newline_nonFirst(FILE *fp,
         write_timestp(fp, time, chaBef, Accuracy);
         for (int j = 0; j < numofAcco; j++) {
             char headtok[64];
+            /* 续组:每一行都写出短式行头(-结构id-,乐器全名沿用 instruments 行次序) */
             snprintf(headtok, sizeof(headtok), "(-%s-", instruments[j].score_part_id);
-            write_blankline(fp, 1, "", chaBef);     /* 伴奏声部前的空行 */
-            write_blankline(fp, 1, headtok, chaBef);/* 后续组只体现结构 id */
-            write_blankline(fp, 1, "", chaBef);
+            write_blankline(fp, 1, headtok, chaBef);/* 伴奏声部第一行 */
+            write_blankline(fp, 1, headtok, chaBef);/* 伴奏声部第二行 */
+            write_blankline(fp, 1, headtok, chaBef);/* 伴奏声部第三行 */
             if ((j != 0) && (j % 5 == 0)) write_timestp(fp, time, chaBef, Accuracy);
         }
         write_blankline(fp, 1, "}", chaBef);
@@ -174,17 +175,16 @@ int new_firstLine(FILE *fp, char *keyroot,
     for (int j = 0; j < numofAcco; j++) {
         Instrument *inst = &instruments[j];
         char headtok[128];
-        /* 首组行头并列显示 结构id<英文全名，第三行放中文全名 */
+        /* 首组:每一行都写出完整行头(结构id<英文全名 + 音区),不再隔两行出现一次 */
         if (j == 0) snprintf(headtok, sizeof(headtok),
                 "(Accomponiment#%d:%s<%s; Initial pitch range: *4",
                 j, inst->score_part_id, inst->part_name_En);
         else snprintf(headtok, sizeof(headtok),
                 "(Accomponiment#%d:%s<%s;                      *4",
                 j, inst->score_part_id, inst->part_name_En);
-        write_blankline(fp, 1, "", RealChaBef);  /* 伴奏声部前的空行 */
-        write_blankline(fp, 1, headtok, RealChaBef);
-        // write_blankline(fp, 1, inst->part_name_Zh ? inst->part_name_Zh : "", RealChaBef);
-        write_blankline(fp,1,"",RealChaBef);
+        write_blankline(fp, 1, headtok, RealChaBef);  /* 伴奏声部第一行 */
+        write_blankline(fp, 1, headtok, RealChaBef);  /* 伴奏声部第二行 */
+        write_blankline(fp, 1, headtok, RealChaBef);  /* 伴奏声部第三行 */
         if ((j != 0) && (j % 5 == 0)) write_timestp(fp, time, RealChaBef, Accuracy);
     }
     write_blankline(fp, 1, "}", RealChaBef);

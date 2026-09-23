@@ -7,7 +7,6 @@
 #include <stdbool.h>
 
 #include "instruments.h"
-#include "tymp_internal.h"
 
 #define MAX_NUM 10000
 #define MAX_READ_NUM 102400
@@ -256,7 +255,8 @@ static const char xmlHead[210] =
 "\n";
 
 // 除去" ""\r""\n""\t""\v"外的全部的ASCII字符（0-127）
-const unsigned char all_non_space_nl[] = {
+/* static:头文件中的定义,供多编译单元共同包含而不产生重复符号 */
+static const unsigned char all_non_space_nl[] = {
     0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,
     0x0C,0x0E,0x0F,
     0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,
@@ -276,7 +276,11 @@ const unsigned char all_non_space_nl[] = {
 };
 
 // 数组长度：126
-const size_t all_len = sizeof(all_non_space_nl);
+static const size_t all_len = sizeof(all_non_space_nl);
 
+
+/* tymp_internal.h 依赖本文件上方定义的全部类型(time_modification / direction_mxml /
+   harmony_mxml / notetype 等),故必须在本文件末尾包含,形成单向依赖。 */
+#include "tymp_internal.h"
 
 #endif //TYMP_H
