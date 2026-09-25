@@ -50,6 +50,7 @@ typedef struct {
     char step;            /* A~G */
     int  alter;           /* -2..2 */
     int  octave;          /* 科学音高八度(C4 = 中央 C) */
+    int  source_degree;   /* 原始简谱级数(鼓组/无音高显示映射) */
     int  is_chord;        /* 与前一音同刻 */
     int  tie_start, tie_stop;
     int  dot;
@@ -61,6 +62,7 @@ typedef struct {
 /* ---------------- 声部 ---------------- */
 typedef struct {
     char *id, *name_en, *name_zh;
+    char *xml_id;          /* 当前作品最终使用的唯一 MusicXML part id */
     int   program;
     int   kind;           /* InsKind */
     int   unpitched;

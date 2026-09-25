@@ -51,8 +51,47 @@ static const DurType kDurTable[] = {
 static int note_cmp(const void *a, const void *b) {
     const Note *x = (const Note *)a, *y = (const Note *)b;
     if (x->col != y->col) return x->col - y->col;
-    if (x->is_chord != y->is_chord) return (x->is_chord ? 1 : 0) - (y->is_chord ? 1 : 0);
+    if (x->is_chord != y->is_chord)
+        return (x->is_chord ? 1 : 0) - (y->is_chord ? 1 : 0);
     return x->seq - y->seq;
+}
+
+static int note_tie_key(const Note *nt) {
+    if (nt->is_rest) return -1;
+    int s = 0;
+    switch (nt->step) {
+    case 'C': s = 0; break; case 'D': s = 1; break; case 'E': s = 2; break;
+    case 'F': s = 3; break; case 'G': s = 4; break; case 'A': s = 5; break;
+    case 'B': s = 6; break; default: return -1;
+    }
+    return ((nt->octave * 7 + s) * 13) + nt->alter + 128;
+}
+
+/* 延音端点校验：每个声部按音高维护一个活动延音状态。
+ * 这只清理孤立 stop 和重叠 start，不凭总数相等而删除合法跨小节链。 */
+static void normalize_note_ties(Note *notes, int n) {
+    int *keys = NULL, *active = NULL, nk = 0, cap = 0;
+    for (int i = 0; i < n; i++) {
+        Note *nt = &notes[i];
+        if (nt->is_rest) { nt->tie_start = nt->tie_stop = 0; continue; }
+        int key = note_tie_key(nt);
+        if (key < 0) { nt->tie_start = nt->tie_stop = 0; continue; }
+        int pos = -1;
+        for (int k = 0; k < nk; k++) if (keys[k] == key) { pos = k; break; }
+        if (pos < 0) {
+            if (nk >= cap) {
+                cap = cap ? cap * 2 : 16;
+                keys = (int *)realloc(keys, (size_t)cap * sizeof(*keys));
+                active = (int *)realloc(active, (size_t)cap * sizeof(*active));
+            }
+            pos = nk++; keys[pos] = key; active[pos] = 0;
+        }
+        if (nt->tie_stop && !active[pos]) nt->tie_stop = 0;
+        if (nt->tie_start && active[pos]) nt->tie_start = 0;
+        if (nt->tie_stop) active[pos] = 0;
+        if (nt->tie_start) active[pos] = 1;
+    }
+    free(keys); free(active);
 }
 
 static void dur_to_type(int cols, const char **name, int *dot) {
@@ -75,6 +114,22 @@ static int dur_exact(int cols, const char **name, int *dot) {
 static int gcd_int(int a, int b) {
     while (b) { int t = a % b; a = b; b = t; }
     return a;
+}
+
+/* 输出用户提供的 XML 文本。谱面中的歌词、标题和方向文字可以含有
+ * &, <, > 以及引号；统一在唯一出口转义，避免生成不可解析的 XML。 */
+static void write_xml_escaped(FILE *fp, const char *s, int attribute) {
+    if (!s) return;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        switch (*p) {
+        case '&': fputs("&amp;", fp); break;
+        case '<': fputs("&lt;", fp); break;
+        case '>': fputs("&gt;", fp); break;
+        case '"': if (attribute) fputs("&quot;", fp); else fputc('"', fp); break;
+        case '\'' : if (attribute) fputs("&apos;", fp); else fputc('\'', fp); break;
+        default: fputc(*p, fp); break;
+        }
+    }
 }
 
 /* ========================== 行扫描 ========================== */
@@ -750,6 +805,9 @@ static int fermata_at(int col) {
 }
 
 static void record_direction(int col, const char *tok, const GroupState *gs) {
+    /* 组尾可能没有当前组状态，方向文字仍应安全地记录。 */
+    GroupState fallback; memset(&fallback, 0, sizeof(fallback)); fallback.tempo = 120;
+    if (!gs) gs = &fallback;
     /* |rit.|vb.|accel.|rall.|vi-|vi+ → words;曲首 |vbN → metronome */
     const char *t = tok;
     while (*t == '|' || *t == '\\') t++;
@@ -764,14 +822,27 @@ static void record_direction(int col, const char *tok, const GroupState *gs) {
         strncpy(de.text, wn, 23);
         if (g_ndirs<512){g_dirs[g_ndirs++] = de;} return;
     }
-    if (!strcmp(w, "se"))                           { if (g_ndirs<512){g_dirs[g_ndirs++]=(DirEv){col,4,"stop",0,0};} return; }
-    if (tok[0]=='|' && (unsigned char)tok[1]==0xE3) { if (g_ndirs<512){g_dirs[g_ndirs++]=(DirEv){col,5,"",0,0};} return; } /* |。 */    if (!strcmp(w, "rit.") || !strcmp(w, "rit"))      { if (g_ndirs<512){g_dirs[g_ndirs++]=(DirEv){col,2,"rit.",0};} }
-    else if (!strcmp(w, "rall"))                     { if (g_ndirs<512){g_dirs[g_ndirs++]=(DirEv){col,2,"rall.",0};} }
-    else if (!strcmp(w, "accel.")||!strcmp(w,"accel")){ if (g_ndirs<512){g_dirs[g_ndirs++]=(DirEv){col,2,"accel.",0};} }
-    else if (!strcmp(w, "vi-"))                     { if (g_ndirs<512){g_dirs[g_ndirs++]=(DirEv){col,2,"rit.",0};} }
-    else if (!strcmp(w, "vi+"))                     { if (g_ndirs<512){g_dirs[g_ndirs++]=(DirEv){col,2,"accel.",0};} }
-    else if (!strcmp(w, "vb.") || !strcmp(w, "vb")) { if (g_ndirs<512){g_dirs[g_ndirs++]=(DirEv){col,2,"A tempo",gs->tempo};} }
-    else if (!strncmp(w, "vb", 2) && isdigit((unsigned char)w[2])) {
+    if (!strcmp(w, "se")) {
+        if (g_ndirs < 512) g_dirs[g_ndirs++] = (DirEv){col, 4, "stop", 0, 0};
+        return;
+    }
+    if (tok[0] == '|' && (unsigned char)tok[1] == 0xE3) {
+        if (g_ndirs < 512) g_dirs[g_ndirs++] = (DirEv){col, 5, "", 0, 0};
+        return;
+    }
+    if (!strcmp(w, "rit.") || !strcmp(w, "rit")) {
+        if (g_ndirs < 512) g_dirs[g_ndirs++] = (DirEv){col, 2, "rit.", 0, 0};
+    } else if (!strcmp(w, "rall")) {
+        if (g_ndirs < 512) g_dirs[g_ndirs++] = (DirEv){col, 2, "rall.", 0, 0};
+    } else if (!strcmp(w, "accel.") || !strcmp(w, "accel")) {
+        if (g_ndirs < 512) g_dirs[g_ndirs++] = (DirEv){col, 2, "accel.", 0, 0};
+    } else if (!strcmp(w, "vi-")) {
+        if (g_ndirs < 512) g_dirs[g_ndirs++] = (DirEv){col, 2, "rit.", 0, 0};
+    } else if (!strcmp(w, "vi+")) {
+        if (g_ndirs < 512) g_dirs[g_ndirs++] = (DirEv){col, 2, "accel.", 0, 0};
+    } else if (!strcmp(w, "vb.") || !strcmp(w, "vb")) {
+        if (g_ndirs < 512) g_dirs[g_ndirs++] = (DirEv){col, 2, "A tempo", gs->tempo, 0};
+    } else if (!strncmp(w, "vb", 2) && isdigit((unsigned char)w[2])) {
         double b = atof(w + 2);
         if (b > 0 && !g_first_tempo) { g_first_tempo = 1; g_first_bpm = b; }
     }
@@ -782,8 +853,9 @@ static void write_direction_words(FILE *fp, int m, int measure_cols) {    static
     for (int i = 0; i < g_ndirs; i++) {
         if (g_dirs[i].col / measure_cols != m) continue;
         if (g_dirs[i].kind == 2) {
-            fprintf(fp, "      <direction>\n        <direction-type><words>%s</words></direction-type>\n",
-                    g_dirs[i].text);
+            fprintf(fp, "      <direction>\n        <direction-type><words>");
+            write_xml_escaped(fp, g_dirs[i].text, 0);
+            fprintf(fp, "</words></direction-type>\n");
             if (g_dirs[i].tempo > 0)
                 fprintf(fp, "        <sound tempo=\"%.0f\"/>\n", g_dirs[i].tempo);
             fprintf(fp, "      </direction>\n");
@@ -847,17 +919,34 @@ static void write_pitch(FILE *fp, const Note *nt) {
     fprintf(fp, "<octave>%d</octave></pitch>\n", oct);
 }
 
+static void unpitched_display(int key, char *step, int *octave) {
+    static const struct { int key; char step; int octave; } map[] = {
+        {36,'F',4},{38,'C',5},{40,'B',4},{42,'G',5},{45,'F',5},{46,'A',5},
+        {49,'B',4},{50,'A',5},{51,'F',5},{54,'F',5},{56,'G',5},{64,'C',5},
+        {70,'B',4},{76,'E',5}
+    };
+    *step = 'F'; *octave = 4;
+    for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++)
+        if (map[i].key == key) { *step = map[i].step; *octave = map[i].octave; return; }
+}
+
 static void write_note(FILE *fp, const Note *nt, int dur_ticks, int type_cols,
                        const char *lyric, int tie_start, int tie_stop) {
     const char *tname; int dot;
     dur_to_type(type_cols, &tname, &dot);
+
+    /* MusicXML 不允许休止带延音端点；调用方的拆分逻辑仍可传入
+     * 原始标记，但在最终输出边界统一清零。 */
+    if (nt->is_rest) { tie_start = 0; tie_stop = 0; }
 
     fprintf(fp, "      <note>\n");
     if (nt->is_chord) fprintf(fp, "        <chord/>\n");
     if (nt->is_rest) {
         fprintf(fp, "        <rest/>\n");
     } else if (g_unpitched_part) {
-        fprintf(fp, "        <unpitched><display-step>F</display-step><display-octave>5</display-octave></unpitched>\n");
+        /* 无音高声部的 display 键位在写出阶段由 part 级默认值提供；
+         * 当前 Note 未携带单件鼓键位时使用标准底鼓显示音。 */
+        fprintf(fp, "        <unpitched><display-step>F</display-step><display-octave>4</display-octave></unpitched>\n");
     } else {
         write_pitch(fp, nt);
     }
@@ -884,7 +973,9 @@ static void write_note(FILE *fp, const Note *nt, int dur_ticks, int type_cols,
         fprintf(fp, "        </notations>\n");
     }
     if (lyric && *lyric && !nt->is_rest) {
-        fprintf(fp, "        <lyric><syllabic>single</syllabic><text>%s</text></lyric>\n", lyric);
+        fprintf(fp, "        <lyric><syllabic>single</syllabic><text>");
+        write_xml_escaped(fp, lyric, 0);
+        fprintf(fp, "</text></lyric>\n");
     }
     fprintf(fp, "      </note>\n");
 }
@@ -955,12 +1046,29 @@ static void make_ncname(const char *raw, int idx, char *out, int sz) {
 }
 
 /* 在组内各行的条目中查找与 col 同列的 | 段内容(供 = 段替换) */
-static const char *find_pipe_at(ItemList *its, int n, int col) {
-    for (int i = 0; i < n; i++)
-        for (int k = 0; k < its[i].n; k++)
-            if (its[i].it[k].kind == IT_SEG_PIPE && its[i].it[k].col == col)
-                return its[i].it[k].text;
-    return NULL;
+/* 在组内查找能服务 target_idx 的方向段。上方 `|` 服务下方，
+ * 下方 `\` 服务上方；同一列取离目标最近的一段。 */
+static const char *find_aux_for_eq(ItemList *its, int n, int target_idx, int col) {
+    const char *best = NULL;
+    int best_dist = 1 << 30;
+    for (int i = 0; i < n; i++) {
+        if (i == target_idx) continue;
+        int serves = (i < target_idx) ? 1 : 0;
+        for (int k = 0; k < its[i].n; k++) {
+            Item *it = &its[i].it[k];
+            if (it->col != col || !it->text) continue;
+            if ((serves && it->kind != IT_SEG_PIPE) || (!serves && it->kind != IT_SEG_BACK)) continue;
+            int dist = i < target_idx ? target_idx - i : i - target_idx;
+            if (dist < best_dist) { best = it->text; best_dist = dist; }
+        }
+    }
+    return best;
+}
+
+static int row_has_eq_at(const ItemList *its, int col) {
+    for (int k = 0; k < its->n; k++)
+        if (its->it[k].kind == IT_EQ && its->it[k].col == col) return 1;
+    return 0;
 }
 
 /* 对一个音符施加机动符号 */
@@ -988,10 +1096,25 @@ static void apply_aux_symbol(Voice *v, int col, char sym) {
 /* 一行的条目(带列偏移)应用到声部:text 为段内容 */
 static void apply_segment(Ctx *ctx, Voice *v, const char *text, int base_col) {
     if (!text || !v) return;
-    /* |@[...] / \@[...] 固定变音段:更新本声部固定变音(近似:不重算已解析音符) */
+    /* |@[...] / \@[...] 固定变音段：更新声部状态，并把增减同步到
+     * 该列之后已经解析出的音符。这样辅助行在数字行之后处理时，
+     * 仍然能影响同组后续事件。 */
     if (text[0] == '@') {
         GroupState tmpg = ctx->gs;
+        int old_fixed[8];
+        for (int f2 = 0; f2 < 8; f2++) old_fixed[f2] = v->fixed_alter[f2];
         parse_fixed_acc(text, &tmpg);
+        for (int k = 0; k < v->n; k++) {
+            Note *nt = &v->notes[k];
+            if (nt->is_rest || nt->col < base_col) continue;
+            for (int degree = 1; degree <= 7; degree++) {
+                char st; int al, oct;
+                degree_to_step_oct(&tmpg, degree, 0, &st, &al, &oct);
+                if (st != nt->step) continue;
+                nt->alter += tmpg.fixed_alter[degree] - old_fixed[degree];
+                break;
+            }
+        }
         for (int f2 = 0; f2 < 8; f2++) v->fixed_alter[f2] = tmpg.fixed_alter[f2];
         if (g_verbose) fprintf(stderr, "  固定变音段(列%d)→ 声部固定变音已更新\n", base_col);
         return;
@@ -1051,9 +1174,54 @@ static void apply_line_copy(Ctx *ctx, Row *rows, int nlines, int src, int from_c
     free(its.it);
 }
 
-/* ========================== 主流程 ========================== */
+/* 提取 *l"..." / *l|"..." / *l\"..." 的歌词正文。
+ * 返回值由调用者释放；below=1 表示歌词服务下方数字行，默认服务上方行。 */
+static char *extract_lyric_text(const char *music, int *below) {
+    if (below) *below = 0;
+    if (!music) return NULL;
+    const char *p = strstr(music, "*l");
+    if (!p) return NULL;
+    p += 2;
+    if (*p == '|') p++;
+    else if (*p == '\\') { if (below) *below = 1; p++; }
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p == '"') p++;
+    const char *q = strchr(p, '"');
+    if (!q) {
+        q = p + strlen(p);
+        fprintf(stderr, "警告:歌词引号未闭合，按行尾截断\n");
+    }
+    size_t n = (size_t)(q - p);
+    char *out = (char *)malloc(n + 1);
+    if (!out) return NULL;
+    memcpy(out, p, n); out[n] = '\0';
+    return out;
+}
 
-/* 解析一行里的和弦行 */
+/* 从歌词正文中取下一个句元。空格只用于分隔句元，标点和其它字符原样保留。 */
+static const char *next_lyric_token(const char *p, char *out, int outsz, int *is_hold) {
+    if (is_hold) *is_hold = 0;
+    if (!p || !out || outsz <= 1) return p;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    if (!*p) { out[0] = '\0'; return p; }
+    if (*p == '-') {
+        if (is_hold) *is_hold = 1;
+        out[0] = '\0';
+        return p + 1;
+    }
+    int ul = utf8_len_of(p);
+    if (ul >= 3) {
+        int n = ul < outsz - 1 ? ul : outsz - 1;
+        memcpy(out, p, n); out[n] = '\0';
+        return p + ul;
+    }
+    int n = 0;
+    while (p[n] && p[n] != ' ' && p[n] != '\t' && n < outsz - 1) n++;
+    memcpy(out, p, n); out[n] = '\0';
+    return p + n;
+}
+
+
 static void parse_chords_row(const char *music, int len, GroupState *gs) {
     int i = 0;
     while (i < len) {
@@ -1275,7 +1443,7 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
                 while (*p2 == ' ') p2++;
                 if (!*p2) break;
                 if (*p2 == '|') {
-                    record_direction((int)(p2 - r->music), p2, NULL);
+                    record_direction((int)(p2 - r->music), p2, &ctx.gs);
                     while (*p2 && *p2 != ' ') p2++;
                 } else break;
             }
@@ -1308,12 +1476,20 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
         int *isnum = (int *)calloc(nb, sizeof(int));
         Voice **vof = (Voice **)calloc(nb, sizeof(Voice *));
 
-        int lyric_rows[512]; int nlyric = 0;      /* 歌词行(附着用) */
+        int lyric_rows[512]; int lyric_below[512]; char *lyric_texts[512];
+        int nlyric = 0;      /* 歌词行(附着用) */
         for (int i = 0; i < nb; i++) {
             Row *r = g->body[i];
             const char *h = r->head;
-            if (strstr(h, "liric") || strstr(h, "lyric") || strstr(r->music, "*l")) {
-                if (nlyric < 512) lyric_rows[nlyric++] = i;   /* 歌词行 */
+            int lbelow = 0;
+            char *ltext = extract_lyric_text(r->music, &lbelow);
+            if (ltext || strstr(h, "liric") || strstr(h, "lyric")) {
+                if (nlyric < 512) {
+                    lyric_rows[nlyric] = i;
+                    lyric_below[nlyric] = lbelow;
+                    lyric_texts[nlyric] = ltext;
+                    nlyric++;
+                } else free(ltext);
                 continue;
             }
             if (strstr(h, "chords")) { parse_chords_row(r->music, (int)strlen(r->music), &ctx.gs); continue; }
@@ -1335,8 +1511,11 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
             if (!isnum[i]) continue;
             for (int k = 0; k < its[i].n; k++) {
                 if (its[i].it[k].kind != IT_EQ) continue;
-                const char *pc = find_pipe_at(its, nb, its[i].it[k].col);
+                const char *pc = find_aux_for_eq(its, nb, i, its[i].it[k].col);
                 if (pc) its[i].it[k].text = dup_str(pc);
+                else if (g_verbose)
+                    fprintf(stderr, "警告:数字行%d列%d的 = 没有配对机动段\n",
+                            i, its[i].it[k].col);
             }
         }
 
@@ -1419,14 +1598,10 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
             for (int k = 0; k < its[a].n; k++) {
                 Item *it = &its[a].it[k];
                 if ((it->kind == IT_SEG_BACK || it->kind == IT_SEG_PIPE) && it->text && it->text[0] == '@') {
-                    /* 固定变音段:作为目标行的顺序事件插入(修 2:按列重算) */
+                    /* 固定变音段直接作用于目标声部；数字行已经先完成基础
+                     * 解析，因此 apply_segment 会按列修正后续音符并更新状态。 */
                     int tgt = (it->kind == IT_SEG_BACK) ? above : below;
-                    if (tgt >= 0) {
-                        Item ni; memset(&ni, 0, sizeof(ni));
-                        ni.kind = IT_IGNORE; ni.degree = (int)'@'; ni.col = it->col;
-                        ni.text = dup_str(it->text);
-                        il_push(&its[tgt], ni);
-                    }
+                    if (tgt >= 0) apply_segment(&ctx, vof[tgt], it->text, it->col);
                     continue;
                 }
                 if (it->kind == IT_SEG_BACK) {
@@ -1436,6 +1611,12 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
                                     g->body[a]->lineno, it->col, g->body[above]->lineno, it->text);
                         apply_segment(&ctx, vof[above], it->text, it->col);
                     }
+                }
+                if (it->kind == IT_SEG_PIPE) {
+                    /* 上指管道段服务下方数字行；除 = 替换外，
+                     * 数字行自身携带的段也要注入其下方目标行。 */
+                    if (below >= 0 && it->text && !row_has_eq_at(&its[below], it->col))
+                        apply_segment(&ctx, vof[below], it->text, it->col);
                 } else if (it->kind == IT_IGNORE) {
                     if (below >= 0) apply_aux_symbol(vof[below], it->col, (char)it->degree);
                 }
@@ -1458,34 +1639,38 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
         if (!nolyrics) {
             for (int li = 0; li < nlyric; li++) {
                 int lr = lyric_rows[li];
-                int below = -1;
-                for (int j = lr + 1; j < nb; j++) if (isnum[j] && vof[j]) { below = j; break; }
+                int below = lyric_below[li] ? -1 : -1;
+                int target = lyric_below[li] ? -1 : -1;
+                if (lyric_below[li]) {
+                    for (int j = lr + 1; j < nb; j++) if (isnum[j] && vof[j]) { target = j; break; }
+                } else {
+                    for (int j = lr - 1; j >= 0; j--) if (isnum[j] && vof[j]) { target = j; break; }
+                    if (target < 0)
+                        for (int j = lr + 1; j < nb; j++) if (isnum[j] && vof[j]) { target = j; break; }
+                }
+                below = target;
                 if (below < 0) continue;
-                const char *txt = g->body[lr]->music;
-                int n = 0;
+                const char *txt = lyric_texts[li] ? lyric_texts[li] : g->body[lr]->music;
+                char token[128]; int hold = 0;
                 for (int k = 0; k < vof[below]->n; k++) {
                     Note *nt = &vof[below]->notes[k];
                     if (nt->is_rest || nt->is_chord) continue;
-                    /* 取下一个非空格 token:CJK 单字,ASCII 连续串 */
-                    while (*txt == ' ' || *txt == '\t') txt++;
-                    if (!*txt) break;
-                    int ul = utf8_len_of(txt);
-                    if (ul >= 3) {
-                        char buf[8]; int bl = ul; if (bl > 7) bl = 7;
-                        memcpy(buf, txt, bl); buf[bl] = '\0';
-                        nt->lyric = dup_str(buf);
-                        txt += ul;
-                    } else {
-                        char buf[64]; int bl = 0;
-                        while (txt[bl] && txt[bl] != ' ' && bl < 63) bl++;
-                        memcpy(buf, txt, bl); buf[bl] = '\0';
-                        nt->lyric = dup_str(buf);
-                        txt += bl;
+                    const char *next = next_lyric_token(txt, token, sizeof(token), &hold);
+                    if (!*token && !hold && next == txt) break;
+                    if (hold) {
+                        nt->tie_lyric = 1;
+                        txt = next;
+                        continue;
                     }
-                    n++;
+                    if (!*token) break;
+                    free(nt->lyric);
+                    nt->lyric = dup_str(token);
+                    txt = next;
                 }
             }
         }
+
+        for (int i = 0; i < nlyric; i++) free(lyric_texts[i]);
 
         for (int i = 0; i < nb; i++) {
             for (int k = 0; k < its[i].n; k++) free(its[i].it[k].text);
@@ -1545,6 +1730,7 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
                         tt.dur_tick = piece ? nn->dur_tick - t1 : t1;
                         tt.tie_start = piece ? nn->tie_start : 1;   /* 首片起拆分音;末片保留原 start */
                         tt.tie_stop  = piece ? 1 : nn->tie_stop;    /* 首片保留原 stop;末片收拆分音 */
+                        if (tt.is_rest) { tt.tie_start = 0; tt.tie_stop = 0; }
                         obuf[i][on[i]++] = tt;
                     }
                 }
@@ -1565,6 +1751,7 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
                 /* 拆分延音:首片保留原 stop、起新 start;末片保留原 start、收新 stop */
                 tt.tie_start = (dur > avail) ? 1 : nt->tie_start;
                 tt.tie_stop  = first ? nt->tie_stop : 1;
+                if (tt.is_rest) { tt.tie_start = 0; tt.tie_stop = 0; }
                 if (nt->dur_tick > 0) {                  /* 连音音按列数比例分 tick(向下取整,末片吸收余数) */
                     tt.dur_tick = (dur > avail) ? (nt->dur_tick * d) / nt->dur
                                                 : nt->dur_tick - tick_done;
@@ -1575,6 +1762,7 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
             }
         }
         qsort(obuf[i], on[i], sizeof(Note), note_cmp);
+        normalize_note_ties(obuf[i], on[i]);
         for (int k = 0; k < on[i]; k++) {
             int m = obuf[i][k].col / measure_cols + 1;
             if (m > max_measures) max_measures = m;
@@ -1602,10 +1790,12 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
         const char *wt = (w > 0 && w < work_titles_n) ? work_titles[w] : title;
         const char *wa = (w > 0 && w < work_titles_n) ? work_authors[w] : author;
 
-        fprintf(wfp, "  <work><work-title>%s</work-title></work>\n", wt);
-        fprintf(wfp, "  <identification><creator type=\"composer\">%s</creator></identification>\n", wa);
+        fprintf(wfp, "  <work><work-title>"); write_xml_escaped(wfp, wt, 0); fprintf(wfp, "</work-title></work>\n");
+        fprintf(wfp, "  <identification><creator type=\"composer\">"); write_xml_escaped(wfp, wa, 0); fprintf(wfp, "</creator></identification>\n");
         fprintf(wfp, "  <part-list>\n");
         int chan = 0;
+        char used_ids[64][64]; int nused_ids = 0;
+        char output_ids[512][64]; memset(output_ids, 0, sizeof(output_ids));
         for (int i = 0; i < nvrec; i++) {
             if (vrecs[i].work != w) continue;
             Voice *v = &ctx.voices[vrecs[i].vidx];
@@ -1613,22 +1803,33 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
             snprintf(pid, sizeof(pid), "%s", v->id ? v->id : "V");
             for (char *q = pid; *q; q++) if (*q == '#' || *q == '.' || *q == '(' || *q == ')') *q = '-';
             {   /* ID 独一化:与本作品内已用 id 去重 */
-                char used[64][64]; int nused = 0, dup = 1;
+                int dup = 1;
                 while (dup) {
                     dup = 0;
-                    for (int u2 = 0; u2 < nused; u2++)
-                        if (!strcmp(used[u2], pid)) { dup = 1; break; }
+                    for (int u2 = 0; u2 < nused_ids; u2++)
+                        if (!strcmp(used_ids[u2], pid)) { dup = 1; break; }
                     if (dup) {
                         int pl = (int)strlen(pid);
-                        if (pl < 60) { pid[pl] = '-'; pid[pl+1] = '2' + nused; pid[pl+2] = '\0'; }
+                        if (pl < 58) {
+                            snprintf(pid + pl, sizeof(pid) - (size_t)pl, "-%d", nused_ids + 1);
+                        } else {
+                            pid[57] = '\0';
+                        }
                     }
                 }
-                if (nused < 64) { strncpy(used[nused], pid, 63); used[nused][63] = '\0'; nused++; }
+                if (nused_ids < 64) {
+                    strncpy(used_ids[nused_ids], pid, 63);
+                    used_ids[nused_ids][63] = '\0';
+                    nused_ids++;
+                }
             }
+            free(v->xml_id);
+            v->xml_id = dup_str(pid);
             fprintf(wfp, "    <score-part id=\"%s\">\n", pid);
-            fprintf(wfp, "      <part-name>%s</part-name>\n", v->name_en ? v->name_en : "Part");
-            fprintf(wfp, "      <score-instrument id=\"%s-I1\">\n        <instrument-name>%s</instrument-name>\n      </score-instrument>\n",
-                    pid, v->name_en ? v->name_en : "Part");
+            fprintf(wfp, "      <part-name>"); write_xml_escaped(wfp, v->name_en ? v->name_en : "Part", 0); fprintf(wfp, "</part-name>\n");
+            fprintf(wfp, "      <score-instrument id=\"%s-I1\">\n        <instrument-name>", pid);
+            write_xml_escaped(wfp, v->name_en ? v->name_en : "Part", 0);
+            fprintf(wfp, "</instrument-name>\n      </score-instrument>\n");
             if (v->kind == INS_UNPITCHED) {
                 fprintf(wfp, "      <midi-instrument id=\"%s-I1\">\n        <midi-channel>%d</midi-channel>\n        <midi-unpitched>%d</midi-unpitched>\n      </midi-instrument>\n",
                         pid, (chan++ % 15) + 1, v->unpitched > 0 ? v->unpitched : 38);
@@ -1649,7 +1850,7 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
         Voice *v = &ctx.voices[vrecs[i].vidx];
         g_unpitched_part = (v->kind != INS_PITCHED);
         char pid[64];
-        snprintf(pid, sizeof(pid), "%s", v->id ? v->id : "V");
+        snprintf(pid, sizeof(pid), "%s", v->xml_id ? v->xml_id : (v->id ? v->id : "V"));
         for (char *q = pid; *q; q++) if (*q == '#' || *q == '.' || *q == '(' || *q == ')') *q = '-';
         fprintf(wfp, "  <part id=\"%s\">\n", pid);
 
@@ -1744,8 +1945,21 @@ int tymp2musicxml(const char *src, const char *dst, int nolyrics) {
     free(obuf); free(on); free(ocap);
     fclose(fp);
 
-    for (int i = 0; i < nlines; i++) { free(rows[i].head); free(rows[i].music); }
-    free(rows); free(vrecs);
+        for (int i = 0; i < nlines; i++) {
+            free(rows[i].head); free(rows[i].music);
+        }
+        for (int i = 0; i < ctx.nvoices; i++) {
+            free(ctx.voices[i].xml_id);
+            free(ctx.voices[i].id);
+            free(ctx.voices[i].name_en);
+            free(ctx.voices[i].name_zh);
+            free(ctx.voices[i].notes);
+        }
+        free(ctx.voices);
+        free(ctx.gs.defs);
+        free(ctx.gs.chords);
+        free(linenos);
+        free(lines);
     return 0;
 }
 

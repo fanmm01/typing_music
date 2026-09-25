@@ -108,6 +108,19 @@ int find_metadata_end(const char *line) {
     for (int i = 0; line[i] && line[i + 1]; i++) {
         if (line[i] == '|' && line[i + 1] == '|') return i + 2;
     }
+
+    /* 歌词行在实践文件中常省略 ||，例如歌词控制前缀后直接跟正文。
+     * 从 *l 开始的部分仍须进入 music，不能被整行丢弃。 */
+    const char *ly = strstr(line, "*l");
+    if (ly) return (int)(ly - line);
+
+    /* 兼容没有 || 的旧式注释歌词行：注释后的正文是歌词。 */
+    const char *comment_end = strstr(line, "*/");
+    if (comment_end) {
+        const char *p = comment_end + 2;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p) return (int)(p - line);
+    }
     return -1;
 }
 
@@ -818,11 +831,16 @@ static const Chord *chord_at(const GroupState *gs, int col) {
  * 周期 = 一周期总格数;不足则整周期重复(自动重复语义)。 */
 void expand_mark(const MarkDef *d, const Chord *chord, const GroupState *gs,
                  int start_col, int span_cols, Voice *v, int us_cell) {
-    if (!d || !d->content || span_cols <= 0) return;
+    if (!d || !d->content || span_cols <= 0 || !v) return;
+
+    /* 每次展开拥有独立的回写地板。空白单元只能延长本次展开中
+     * 最近一个非空单元产生的音，不能越过相邻标记/复制事件。 */
+    int saved_floor = v->emit_floor;
+    v->emit_floor = v->n;
 
     /* ⑥ 吉他把位表注 X&g"xxxxxx":每字符一个弦号(1 为低弦),按调弦表取弦音 */
     if (d->kind == 6) {
-        if (!gs->tuning_valid) return;
+        if (!gs->tuning_valid) { v->emit_floor = saved_floor; return; }
         size_t clen = strlen(d->content);
         for (int col = 0; col < span_cols; col++) {
             char cc = d->content[col % (clen ? clen : 1)];
@@ -839,6 +857,7 @@ void expand_mark(const MarkDef *d, const Chord *chord, const GroupState *gs,
             voice_push(v, nt);
             v->anchor_step = nt.step; v->anchor_oct = nt.octave; v->has_anchor = 1;
         }
+        v->emit_floor = saved_floor;
         return;
     }
 
@@ -860,7 +879,7 @@ void expand_mark(const MarkDef *d, const Chord *chord, const GroupState *gs,
         c += l;
         if (*c == '_') { c++; }             /* 管道/括号内容:下划线仅为分隔符 */
     }
-    if (nu == 0) return;
+    if (nu == 0) { v->emit_floor = saved_floor; return; }
 
     /* 量出周期宽度(在探针声部上试写,不落音符) */
     Voice probe; memset(&probe, 0, sizeof(probe));
@@ -872,7 +891,11 @@ void expand_mark(const MarkDef *d, const Chord *chord, const GroupState *gs,
         width += (u > 0 ? u : 1);           /* 空格单元同样占 1 列 */
     }
     free(probe.notes);
-    if (width <= 0) { for (int i = 0; i < nu; i++) free(units[i]); return; }
+    if (width <= 0) {
+        for (int i = 0; i < nu; i++) free(units[i]);
+        v->emit_floor = saved_floor;
+        return;
+    }
 
     if (width == 1) {
         /* 单单位标记(如 R&r"{135}"):一次性,不自动重复;该音持满调用跨度 */
@@ -882,6 +905,7 @@ void expand_mark(const MarkDef *d, const Chord *chord, const GroupState *gs,
         for (int q = v->n - 1; q >= q0; q--)          /* 只触及本标记自己的音 */
             v->notes[q].dur = span_cols;
         for (int i = 0; i < nu; i++) free(units[i]);
+        v->emit_floor = saved_floor;
         return;
     }
 
@@ -891,7 +915,8 @@ void expand_mark(const MarkDef *d, const Chord *chord, const GroupState *gs,
     int  save_has  = v->has_anchor;
 
     /* 逐列铺排:和弦改变处重新放置标记(循环重头,单元索引归零) */
-    int col = 0, ui = 0, exp0 = v->n;
+    int col = 0, ui = 0;
+    int exp0 = v->emit_floor;
     const Chord *prev_ch = chord_at(gs, start_col);
     while (col < span_cols) {
         v->anchor_step = save_step; v->anchor_oct = save_oct; v->has_anchor = save_has;
@@ -912,4 +937,5 @@ void expand_mark(const MarkDef *d, const Chord *chord, const GroupState *gs,
         ui = (ui + 1) % nu;
     }
     for (int i = 0; i < nu; i++) free(units[i]);
+    v->emit_floor = saved_floor;
 }
